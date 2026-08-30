@@ -110,6 +110,36 @@ Python · pandas · polars · scikit-learn (Incremental PCA) · sentence-transfo
   alternative to endlessly tuning a single HDBSCAN run's parameters to force
   an unnatural fit.
 
+## Manual validation
+
+Beyond the quantitative silhouette score, a sample of clusters was manually
+reviewed by reading example complaints and checking for thematic coherence:
+
+- **Student Loans (Mohela, Navient)**: examples consistently involved
+  servicer disputes (payment tracking, documentation requests, refinancing
+  issues) — cluster is coherent.
+- **Legal/Template Boilerplate — FCRA 1681i Citations**: examples were
+  short, formulaic complaints citing the exact statute referenced in the
+  cluster's TF-IDF terms (15 USC 1681i) — a clean, highly coherent cluster.
+- **Bank/Card Account Disputes**: examples centered on account/refund/
+  balance disputes across checking, credit card, and money-transfer
+  products — coherent given the cluster's intentionally broad scope.
+- **Zelle-related cluster**: initially labeled "Zelle Transfer Failures"
+  based on TF-IDF terms alone. Manual review of examples revealed the
+  cluster is actually about **dispute-handling and fraud-investigation
+  complaints against Zelle/Early Warning Services** (e.g. refused refunds,
+  inadequate fraud investigation, missing disclosures about irreversible
+  transfers) rather than failed transfers specifically — several examples
+  also referenced the 2024 CFPB lawsuit against Zelle's operator using
+  near-identical phrasing, suggesting templated language. The cluster
+  label was corrected to **"Zelle Dispute & Fraud Handling Complaints"**
+  to accurately reflect its content.
+
+This validation step illustrates a general limitation of TF-IDF-only
+labeling: statistically frequent terms don't always capture the precise
+semantic theme of a cluster, and spot-checking example documents remains
+necessary to catch mislabeled or ambiguously-named clusters.
+
 ## Running the dashboard locally
 
 ```bash
@@ -119,4 +149,3 @@ streamlit run app.py
 
 Requires `dashboard_data.parquet` (complaint text + cluster assignments) in
 the same directory as `app.py`.
-
