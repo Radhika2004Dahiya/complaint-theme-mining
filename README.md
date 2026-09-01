@@ -1,151 +1,44 @@
-# CFPB Consumer Complaint Semantic Clustering & Dashboard
+# Complaint Theme Mining: Unsupervised Discovery of Complaint Patterns
 
-An end-to-end NLP pipeline that discovers latent themes in U.S. Consumer
-Financial Protection Bureau (CFPB) complaint narratives using sentence
-embeddings, dimensionality reduction, and density-based clustering — surfaced
-through an interactive Streamlit dashboard.
+Discovers latent themes in unlabeled customer complaint text using sentence embeddings and density-based clustering, and validates the discovered themes against official regulatory categories.
 
-## Overview
+## Problem
+Companies and regulators receive complaint text in free-form language with no consistent internal categorization. Official categories (like CFPB's `Issue` taxonomy) are coarse and don't capture within-category structure. This project asks: can unsupervised clustering on complaint text recover meaningful sub-themes that a fixed taxonomy misses?
 
-The CFPB publishes a public dataset of consumer complaints against financial
-companies (banks, credit bureaus, lenders, payment apps, etc.), including a
-free-text narrative for each complaint. This project processes the full
-dataset (~15 million rows, ~7GB) end-to-end to answer: *what are the
-underlying themes in how people describe their financial complaints,
-independent of the CFPB's own product/category labels?*
+## Data
+- Source: CFPB Consumer Complaint Database (public, updated daily, 13M+ complaints since 2011)
+- Filtered to Product == "Credit card" complaints with a written consumer narrative present: 128,220 rows after cleaning
+- Cleaning: removed CFPB's PII redaction placeholders (XXXX strings), normalized whitespace, dropped near-empty narratives (<30 chars)
+- A random sample of 30,000 rows was used for clustering (full cleaned dataset retained for future scaling)
 
-## Pipeline
+## Methodology
+1. Baseline: TF-IDF (5,000 features, alphabetic tokens only) + K-Means (k=15)
+2. Main approach: Sentence embeddings (all-MiniLM-L6-v2) -> UMAP dimensionality reduction (10 components, cosine metric) -> HDBSCAN clustering (density-based, doesn't require pre-specifying cluster count, flags low-confidence points as noise rather than force-assigning them)
+3. Validation: cross-tabulated discovered clusters against CFPB's official Issue labels, plus manual reading of representative documents per cluster
 
-**1. Data engineering**
-- Cleaned a 15,024,468-row, ~7GB raw CSV containing malformed quote-escaping
-  (mixed `""` / `''` quoting in free-text fields) that broke standard CSV
-  parsers (pandas C engine, polars). Built a custom streaming parser using
-  Python's `csv` module (which correctly handles multi-line quoted fields)
-  to produce a clean, well-formed CSV — recovering 14,984,968 usable rows.
-- Built a **category-stratified sample of 187,193 complaints** using
-  capped-proportional sampling: every product category is represented in
-  proportion to its true frequency, with a floor (minimum rows for rare
-  categories) and a cap (30% ceiling to prevent the dominant category from
-  overwhelming the sample). Near-duplicate CFPB category labels (a result
-  of the taxonomy changing over time) were merged into canonical categories
-  first.
+## Key Results
+| Approach | Silhouette Score | Clusters | Noise |
+|---|---|---|---|
+| TF-IDF + K-Means (baseline) | 0.028 | 15 (fixed) | 0% |
+| SBERT embeddings + HDBSCAN | 0.569 | 32 (auto-discovered) | 42.9% |
 
-**2. Semantic embedding**
-- Generated 768-dimensional sentence embeddings for each complaint narrative
-  using `sentence-transformers` (`all-mpnet-base-v2`), GPU-accelerated.
+A tuned HDBSCAN configuration (lower min_samples) reduced noise to 38.2% but dropped silhouette to 0.491 with more fragmented, less coherent clusters - the original configuration was kept as the primary result based on both quantitative score and qualitative cluster coherence.
 
-**3. Dimensionality reduction**
-- Reduced 768 → 50 dimensions via Incremental PCA (70% variance retained),
-  chosen for memory efficiency on constrained hardware.
-- Further reduced 50 → 5 dimensions via GPU-accelerated UMAP (RAPIDS cuML),
-  optimized for clustering rather than visualization.
+## Key Findings
+- The single largest official category, "Problem with a purchase shown on your statement," was split into ~13 distinct sub-clusters by the embedding approach - each corresponding to a different underlying pattern (merchant disputes, subscription cancellations, unauthorized transactions, company-specific fraud patterns for Chase/BofA/Amex/etc.). The official taxonomy treats these as one bucket; the clustering surfaced meaningful structure within it.
+- Six clusters converged on near-identical templated dispute letters (citing 15 U.S.C. 1681e/1681i, boilerplate "never late but reported late" phrasing), all clustering separately from organically-written complaints about the same underlying issue. This suggests a meaningful fraction of complaints originate from credit-repair services using standardized templates - a pattern invisible to keyword-based analysis but immediately visible once complaints are embedded semantically.
+- The baseline's low silhouette score (0.028) reflects TF-IDF's inability to recognize semantic equivalence between differently-worded complaints about the same issue - the embedding approach's 20x improvement directly addresses this limitation.
 
-**4. Clustering**
-- Applied HDBSCAN (RAPIDS cuML) for density-based clustering — no need to
-  pre-specify the number of clusters, and it naturally identifies noise
-  points that don't belong to any coherent theme.
-- Used a **two-level hierarchical approach**: an initial pass produced a
-  small number of coarse superclusters, two of which were large and
-  semantically mixed (spanning multiple CFPB product categories). Each of
-  those superclusters was independently re-embedded (UMAP) and re-clustered
-  (HDBSCAN) to reveal their internal sub-themes.
-- **Final result: 64 clusters, silhouette score 0.386, 25.2% noise rate**
-  (on 187,193 sampled complaints).
+## Limitations
+- 42.9% of complaints were labeled as noise by HDBSCAN rather than assigned to a cluster
+- Cluster labels were assigned manually based on top TF-IDF terms and reading representative documents, not through an automated labeling step (see Future Work)
+- Clustering was run on a 30,000-row sample of the 128,220-row cleaned dataset for compute efficiency
 
-**5. Cluster interpretation**
-- Labeled every cluster using TF-IDF / c-TF-IDF keyword extraction (treating
-  each cluster's combined text as one document, following the approach used
-  by BERTopic), after filtering CFPB's own PII-redaction placeholder
-  (`XXXX`) from the vocabulary.
-- Findings included clusters that cut across official CFPB categories —
-  e.g. platform-specific complaint clusters (Cash App, PayPal, Zelle, Navy
-  Federal) that span multiple official "product" labels, and a distinct
-  cluster of complaints using templated legal/regulatory boilerplate
-  language (FCRA section citations, dispute-letter phrasing), suggestive of
-  credit-repair-service-assisted filings versus organically-written
-  complaints.
+## Future Work
+- Automated cluster labeling using a local LLM (Ollama) on representative documents per cluster
+- Interactive Streamlit app for exploring cluster themes and classifying new complaint text in real time
+- Investigate the 42.9% noise points specifically
+- Scale clustering to the full 128,220-row cleaned dataset
 
-**6. Dashboard**
-- Built an interactive Streamlit application (`app.py`) for exploring the
-  results: cluster size overview, filterable by product category and state,
-  per-cluster product-category breakdown, example complaint narratives per
-  cluster, and full-text search across all 187k sampled complaints.
-
-## Key results
-
-| Metric | Value |
-|---|---|
-| Raw dataset size | ~15,024,468 rows (~7GB) |
-| Cleaned/usable rows | 14,984,968 |
-| Stratified sample size | 187,193 |
-| Embedding model | `all-mpnet-base-v2` (768-dim) |
-| PCA variance retained | 70.1% (50 components) |
-| Final clusters | 64 |
-| Silhouette score | 0.386 |
-| Noise rate | 25.2% |
-| Product categories represented | 11 (canonicalized) |
-
-## Tech stack
-
-Python · pandas · polars · scikit-learn (Incremental PCA) · sentence-transformers
-· UMAP (RAPIDS cuML, GPU-accelerated) · HDBSCAN (RAPIDS cuML, GPU-accelerated)
-· PyArrow · Streamlit
-
-## Design decisions worth noting
-
-- **Sampling over full-scale processing**: with 15M rows, UMAP and HDBSCAN's
-  algorithmic complexity makes full-dataset clustering impractical on
-  commodity hardware. A capped-proportional stratified sample of ~187k
-  preserves category representation while keeping the pipeline tractable —
-  a standard practice in large-scale topic modeling (e.g. BERTopic's own
-  recommended workflow for million-row corpora).
-- **PCA before UMAP**: pre-reducing to 50 dimensions via PCA before UMAP
-  substantially reduces UMAP's memory footprint during its optimization
-  phase, without materially harming downstream cluster quality — again
-  following standard large-scale text-clustering practice.
-- **Two-level hierarchical clustering**: rather than forcing a single flat
-  clustering to resolve both broad and fine-grained structure at once,
-  clustering was applied recursively to any supercluster that remained too
-  large/mixed after the first pass. This is a legitimate, more sophisticated
-  alternative to endlessly tuning a single HDBSCAN run's parameters to force
-  an unnatural fit.
-
-## Manual validation
-
-Beyond the quantitative silhouette score, a sample of clusters was manually
-reviewed by reading example complaints and checking for thematic coherence:
-
-- **Student Loans (Mohela, Navient)**: examples consistently involved
-  servicer disputes (payment tracking, documentation requests, refinancing
-  issues) — cluster is coherent.
-- **Legal/Template Boilerplate — FCRA 1681i Citations**: examples were
-  short, formulaic complaints citing the exact statute referenced in the
-  cluster's TF-IDF terms (15 USC 1681i) — a clean, highly coherent cluster.
-- **Bank/Card Account Disputes**: examples centered on account/refund/
-  balance disputes across checking, credit card, and money-transfer
-  products — coherent given the cluster's intentionally broad scope.
-- **Zelle-related cluster**: initially labeled "Zelle Transfer Failures"
-  based on TF-IDF terms alone. Manual review of examples revealed the
-  cluster is actually about **dispute-handling and fraud-investigation
-  complaints against Zelle/Early Warning Services** (e.g. refused refunds,
-  inadequate fraud investigation, missing disclosures about irreversible
-  transfers) rather than failed transfers specifically — several examples
-  also referenced the 2024 CFPB lawsuit against Zelle's operator using
-  near-identical phrasing, suggesting templated language. The cluster
-  label was corrected to **"Zelle Dispute & Fraud Handling Complaints"**
-  to accurately reflect its content.
-
-This validation step illustrates a general limitation of TF-IDF-only
-labeling: statistically frequent terms don't always capture the precise
-semantic theme of a cluster, and spot-checking example documents remains
-necessary to catch mislabeled or ambiguously-named clusters.
-
-## Running the dashboard locally
-
-```bash
-pip install -r requirements.txt
-streamlit run app.py
-```
-
-Requires `dashboard_data.parquet` (complaint text + cluster assignments) in
-the same directory as `app.py`.
+## How to Run
+See notebooks in order: 01_data_cleaning.ipynb -> 02_baseline_tfidf.ipynb -> 03_embeddings_hdbscan.ipynb -> 04_validation.ipynb
