@@ -1,6 +1,32 @@
-dashboard_data.parquet
-*.npy
+# Data directories
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/cluster_summary.csv
+
+# Large datasets & artifacts
+complaints.csv
+complaints.csv.zip
+complaints_clean.parquet
+complaints_fixed.csv
+sample.csv
 *.parquet
+*.npy
+*.pkl
+*.tar.gz
+*.zip
+
+# Python & Environment
 __pycache__/
-.streamlit/
 *.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+.env
+venv/
+.venv/
+
+# IDE & Streamlit
+.vscode/
+.idea/
+.streamlit/config.toml

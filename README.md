@@ -1,50 +1,93 @@
 # Complaint Theme Mining: Unsupervised Discovery of Complaint Patterns
 
-Discovers latent themes in unlabeled customer complaint text using sentence embeddings and density-based clustering, validates the discovered themes against official regulatory categories, auto-labels clusters with a local LLM, and serves results through a deployed interactive app.
+Discovers latent themes in unlabeled customer complaint text using sentence embeddings and density-based clustering, validates the discovered themes against official regulatory categories, auto-labels clusters with a local LLM (Llama 3.2), and serves results through a deployed interactive Streamlit app.
 
 **Live app**: https://complaint-theme-mining-3cstps3mtevfgo8kbtunep.streamlit.app/
 
-## Problem
-Companies and regulators receive complaint text in free-form language with no consistent internal categorization. Official categories (like CFPB's Issue taxonomy) are coarse and don't capture within-category structure. This project asks: can unsupervised clustering on complaint text recover meaningful sub-themes that a fixed taxonomy misses?
+---
 
-## Data
-- Source: CFPB Consumer Complaint Database (public, updated daily, 13M+ complaints since 2011)
-- Filtered to Product == "Credit card" complaints with a written consumer narrative present: 128,220 rows after cleaning
-- Cleaning: removed CFPB's PII redaction placeholders (XXXX strings), normalized whitespace, dropped near-empty narratives (<30 chars)
-- A random sample of 30,000 rows was used for clustering
+## 📁 Repository Structure
 
-## Methodology
-1. Baseline: TF-IDF (5,000 features, alphabetic tokens only) + K-Means (k=15)
-2. Main approach: Sentence embeddings (all-MiniLM-L6-v2) -> UMAP dimensionality reduction (10 components, cosine metric) -> HDBSCAN clustering
-3. Validation: cross-tabulated discovered clusters against CFPB's official Issue labels, plus manual reading of representative documents per cluster
-4. Automated labeling: for each cluster, the 5 documents closest to the cluster centroid were passed to a locally-run LLM (Llama 3.2 3B via Ollama) to generate a short human-readable label
-5. Deployment: results served via an interactive Streamlit app for exploring discovered themes
+```
+complaint-theme-mining/
+├── data/
+│   ├── raw/                  # Raw CFPB complaints CSV/Parquet files (gitignored)
+│   ├── processed/            # Generated cluster summaries (data/processed/cluster_summary.csv)
+│   └── sample_data.csv       # Clean sample dataset for testing and demonstration
+├── src/                      # Modular NLP & Pipeline source code
+│   ├── __init__.py
+│   ├── data_loader.py        # Chunked dataset loading & PII cleaning
+│   ├── nlp_pipeline.py       # SBERT embedding, UMAP reduction, HDBSCAN clustering & evaluation
+│   ├── llm_labeler.py        # Local Ollama / Llama 3.2 auto-labeling & fallback logic
+│   └── utils.py              # PII redaction & vector distance utilities
+├── tests/                    # Automated unit tests
+│   └── test_pipeline.py
+├── .gitignore                # Git ignore configuration
+├── ANALYSIS_SUMMARY.md       # Comprehensive analysis & performance review summary
+├── README.md                 # Project documentation
+├── app.py                    # Streamlit interactive dashboard
+├── cluster_summary.csv       # Cluster summary data (root level fallback)
+├── complaint-theme-mining_pipeline.ipynb # Exploratory analysis notebook
+└── requirements.txt          # Project dependencies
+```
 
-## Key Results
-| Approach | Silhouette Score | Clusters | Noise |
+---
+
+## 🎯 Problem Statement
+Companies and regulators receive complaint text in free-form language with no consistent internal categorization. Official categories (like CFPB's Issue taxonomy) are coarse and don't capture within-category structure. This project asks: **can unsupervised clustering on complaint text recover meaningful sub-themes that a fixed taxonomy misses?**
+
+---
+
+## 📊 Data Pipeline & Methodology
+- **Source**: CFPB Consumer Complaint Database (13M+ complaints since 2011).
+- **Filtering & Cleaning**: Filtered to "Credit card" complaints with narratives (128,220 rows after cleaning). Redacted CFPB placeholders (`XXXX`, `XX/XX/XXXX`) replaced with standardized markers (`[REDACTED]`, `[DATE]`), normalized whitespace, dropped short narratives (< 30 chars).
+- **Embeddings**: Sentence-BERT (`all-MiniLM-L6-v2`, 384 dimensions) generated in memory-safe batches.
+- **Dimensionality Reduction**: UMAP (10 components, cosine metric).
+- **Clustering**: HDBSCAN density-based clustering automatically discovering 32 latent theme clusters.
+- **Validation**: Silhouette score validation strictly evaluated on assigned non-noise points (achieved **0.569** score).
+- **Auto-Labeling**: Extracted 5 representative complaints closest to cluster centroids and prompted local LLM (**Llama 3.2 3B** via Ollama) with automated connection fallback handling.
+
+---
+
+## 📈 Key Results Comparison
+
+| Approach | Silhouette Score | Discovered Clusters | Noise Ratio |
 |---|---|---|---|
-| TF-IDF + K-Means (baseline) | 0.028 | 15 (fixed) | 0% |
-| SBERT embeddings + HDBSCAN | 0.569 | 32 (auto-discovered) | 42.9% |
+| TF-IDF + K-Means (baseline) | 0.028 | 15 (fixed) | 0.0% |
+| **SBERT + UMAP + HDBSCAN (Our Method)** | **0.569** | **32 (auto-discovered)** | **42.9%** |
 
-A tuned HDBSCAN configuration (lower min_samples) reduced noise to 38.2% but dropped silhouette to 0.491 with more fragmented, less coherent clusters - the original configuration was kept as the primary result.
+---
 
-## Key Findings
-- The single largest official category, "Problem with a purchase shown on your statement," was split into ~13 distinct sub-clusters by the embedding approach, each corresponding to a different underlying pattern. The official taxonomy treats these as one bucket; the clustering surfaced meaningful structure within it.
-- Six clusters converged on near-identical templated dispute letters (citing 15 U.S.C. 1681e/1681i, boilerplate "never late but reported late" phrasing), separate from organically-written complaints about the same underlying issue - suggesting a meaningful fraction of complaints originate from credit-repair services using standardized templates.
-- Independent validation via automated LLM labeling broadly confirmed manual cluster interpretation - clusters manually identified as late-payment-reporting disputes, fraud/unauthorized-charge patterns, and promotional/rewards issues were independently labeled by the LLM with matching or closely related terms.
-- The baseline's low silhouette score (0.028) reflects TF-IDF's inability to recognize semantic equivalence between differently-worded complaints about the same issue - the embedding approach's 20x improvement directly addresses this limitation.
+## 🚀 How to Run & Setup
 
-## Limitations
-- 42.9% of complaints were labeled as noise by HDBSCAN rather than assigned to a cluster
-- Clustering was run on a 30,000-row sample of the 128,220-row cleaned dataset for compute efficiency
-- The Streamlit app currently displays pre-computed cluster summaries; live classification of arbitrary new complaint text is not yet implemented
+### 1. Prerequisites & Installation
+Ensure Python 3.9+ is installed. Clone the repository and install dependencies:
 
-## Future Work
-- Add live classification: embed new user-submitted complaint text and match against cluster centroids in the app
-- Scale clustering to the full 128,220-row cleaned dataset
-- Investigate the 42.9% noise points further
+```bash
+git clone https://github.com/Radhika2004Dahiya/complaint-theme-mining.git
+cd complaint-theme-mining
+pip install -r requirements.txt
+```
 
-## How to Run
-- Notebooks: complaint-theme-mining_pipeline.ipynb covers data cleaning through validation
-- App: streamlit run app.py (requires cluster_summary.csv in the same directory)
-- Live version: https://complaint-theme-mining-3cstps3mtevfgo8kbtunep.streamlit.app/
+### 2. Running the Interactive Streamlit App
+To launch the dashboard locally:
+
+```bash
+streamlit run app.py
+```
+
+### 3. Running Local LLM Auto-Labeling (Optional)
+If you wish to run the auto-labeling module using a local LLM:
+1. Install [Ollama](https://ollama.ai/).
+2. Pull Llama 3.2: `ollama pull llama3.2`
+3. Ensure Ollama service is running on `http://localhost:11434`.
+
+---
+
+## 🧪 Running Tests
+
+Run the automated test suite to verify pipeline functionality:
+
+```bash
+python3 -m unittest discover -s tests
+```
