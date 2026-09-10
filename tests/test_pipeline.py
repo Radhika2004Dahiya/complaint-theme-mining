@@ -3,9 +3,16 @@ Unit and integration tests for Complaint Theme Mining pipeline and components.
 """
 
 import os
+import sys
+from pathlib import Path
 import pytest
 import pandas as pd
 import numpy as np
+
+# Ensure root directory is in sys.path when running pytest directly
+BASE_DIR = Path(__file__).resolve().parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
 
 from src import config
 from src.nlp_pipeline import (
