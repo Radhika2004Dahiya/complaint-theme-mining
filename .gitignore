@@ -1,6 +1,0 @@
-dashboard_data.parquet
-*.npy
-*.parquet
-__pycache__/
-.streamlit/
-*.pyc
