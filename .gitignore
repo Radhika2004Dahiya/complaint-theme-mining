@@ -1,0 +1,32 @@
+# Python / Virtual Environment
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv/
+
+# Datasets & Large Files
+data/raw/*.csv
+data/processed/*.csv
+!data/raw/sample_complaints.csv
+!data/processed/.gitkeep
+*.parquet
+*.h5
+*.hd5
+
+# IDE / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Streamlit
+.streamlit/
+
+# Models & Embeddings Cache
+models/
+embeddings/
+.cache/
