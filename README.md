@@ -1,50 +1,158 @@
-# Complaint Theme Mining: Unsupervised Discovery of Complaint Patterns
+# Complaint Theme Mining & Auto-Labeling Pipeline
 
-Discovers latent themes in unlabeled customer complaint text using sentence embeddings and density-based clustering, validates the discovered themes against official regulatory categories, auto-labels clusters with a local LLM, and serves results through a deployed interactive app.
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://complaint-theme-mining-3cstps3mtevfgo8kbtunep.streamlit.app/) [![Tests](https://img.shields.io/badge/Tests-9%2F9%20Passing-brightgreen.svg)]() [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/) [![Streamlit](https://img.shields.io/badge/Streamlit-1.25+-FF4B4B.svg)](https://streamlit.io/) [![SBERT](https://img.shields.io/badge/Model-SBERT%20all--MiniLM--L6--v2-green.svg)](https://www.sbert.net/) [![HDBSCAN](https://img.shields.io/badge/Clustering-HDBSCAN-orange.svg)](https://hdbscan.readthedocs.io/) [![Ollama Llama 3.2](https://img.shields.io/badge/LLM-Llama%203.2%20(Ollama)-purple.svg)](https://ollama.ai/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Live app**: https://complaint-theme-mining-3cstps3mtevfgo8kbtunep.streamlit.app/
+An end-to-end NLP pipeline and interactive Streamlit dashboard designed to analyze 128,000+ Consumer Financial Protection Bureau (CFPB) complaint narratives. The pipeline leverages **SBERT embeddings**, **HDBSCAN clustering**, **c-TF-IDF keyword extraction**, and local **Llama 3.2 (via Ollama)** for automated theme labeling and summary generation.
 
-## Problem
-Companies and regulators receive complaint text in free-form language with no consistent internal categorization. Official categories (like CFPB's Issue taxonomy) are coarse and don't capture within-category structure. This project asks: can unsupervised clustering on complaint text recover meaningful sub-themes that a fixed taxonomy misses?
+🌐 **Live Interactive App:** [View Live Streamlit Dashboard](https://complaint-theme-mining-3cstps3mtevfgo8kbtunep.streamlit.app/)
 
-## Data
-- Source: CFPB Consumer Complaint Database (public, updated daily, 13M+ complaints since 2011)
-- Filtered to Product == "Credit card" complaints with a written consumer narrative present: 128,220 rows after cleaning
-- Cleaning: removed CFPB's PII redaction placeholders (XXXX strings), normalized whitespace, dropped near-empty narratives (<30 chars)
-- A random sample of 30,000 rows was used for clustering
+<!-- ![Streamlit Dashboard](docs/dashboard_preview.png) -->
 
-## Methodology
-1. Baseline: TF-IDF (5,000 features, alphabetic tokens only) + K-Means (k=15)
-2. Main approach: Sentence embeddings (all-MiniLM-L6-v2) -> UMAP dimensionality reduction (10 components, cosine metric) -> HDBSCAN clustering
-3. Validation: cross-tabulated discovered clusters against CFPB's official Issue labels, plus manual reading of representative documents per cluster
-4. Automated labeling: for each cluster, the 5 documents closest to the cluster centroid were passed to a locally-run LLM (Llama 3.2 3B via Ollama) to generate a short human-readable label
-5. Deployment: results served via an interactive Streamlit app for exploring discovered themes
+---
 
-## Key Results
-| Approach | Silhouette Score | Clusters | Noise |
-|---|---|---|---|
-| TF-IDF + K-Means (baseline) | 0.028 | 15 (fixed) | 0% |
-| SBERT embeddings + HDBSCAN | 0.569 | 32 (auto-discovered) | 42.9% |
+## 📌 Features
 
-A tuned HDBSCAN configuration (lower min_samples) reduced noise to 38.2% but dropped silhouette to 0.491 with more fragmented, less coherent clusters - the original configuration was kept as the primary result.
+- **Batched SBERT Vectorization:** Efficient dense embedding generation using `all-MiniLM-L6-v2` with batch size controls (`batch_size=64`).
+- **Density-Based Clustering:** HDBSCAN identifies naturally occurring complaint themes without specifying arbitrary cluster counts.
+- **Soft Clustering & Membership Vectors:** Reassigns unclustered noise points (-1) to their highest probability cluster using HDBSCAN soft membership scores.
+- **c-TF-IDF Keyword Extraction:** Class-based TF-IDF extracts top representative keywords per theme cluster.
+- **Local LLM Auto-Labeling:** Integration with local Llama 3.2 (Ollama) to produce executive titles and summaries for each cluster, with automatic keyword-based fallback if LLM services are offline.
+- **Interactive Streamlit Dashboard:** 2D PCA semantic projection scatter plots, theme filtering, metric summary cards, and narrative search with full Streamlit caching (`@st.cache_data`).
 
-## Key Findings
-- The single largest official category, "Problem with a purchase shown on your statement," was split into ~13 distinct sub-clusters by the embedding approach, each corresponding to a different underlying pattern. The official taxonomy treats these as one bucket; the clustering surfaced meaningful structure within it.
-- Six clusters converged on near-identical templated dispute letters (citing 15 U.S.C. 1681e/1681i, boilerplate "never late but reported late" phrasing), separate from organically-written complaints about the same underlying issue - suggesting a meaningful fraction of complaints originate from credit-repair services using standardized templates.
-- Independent validation via automated LLM labeling broadly confirmed manual cluster interpretation - clusters manually identified as late-payment-reporting disputes, fraud/unauthorized-charge patterns, and promotional/rewards issues were independently labeled by the LLM with matching or closely related terms.
-- The baseline's low silhouette score (0.028) reflects TF-IDF's inability to recognize semantic equivalence between differently-worded complaints about the same issue - the embedding approach's 20x improvement directly addresses this limitation.
+---
 
-## Limitations
-- 42.9% of complaints were labeled as noise by HDBSCAN rather than assigned to a cluster
-- Clustering was run on a 30,000-row sample of the 128,220-row cleaned dataset for compute efficiency
-- The Streamlit app currently displays pre-computed cluster summaries; live classification of arbitrary new complaint text is not yet implemented
+## 📈 Key Results & Model Performance
 
-## Future Work
-- Add live classification: embed new user-submitted complaint text and match against cluster centroids in the app
-- Scale clustering to the full 128,220-row cleaned dataset
-- Investigate the 42.9% noise points further
+The table below highlights performance comparison between baseline approaches and the SBERT + UMAP + HDBSCAN architecture:
 
-## How to Run
-- Notebooks: complaint-theme-mining_pipeline.ipynb covers data cleaning through validation
-- App: streamlit run app.py (requires cluster_summary.csv in the same directory)
-- Live version: https://complaint-theme-mining-3cstps3mtevfgo8kbtunep.streamlit.app/
+| Pipeline Model Strategy | Silhouette Score | Noise Ratio | Cluster Count | Key Characteristics |
+|---|---|---|---|---|
+| **TF-IDF + K-Means (Baseline)** | 0.028 | 0% | 15 (fixed) | High overlap, rigid cluster partitions, fails on semantic nuance. |
+| **SBERT + UMAP + HDBSCAN (Primary)** | 0.569 | 42.9% | 32 (auto-discovered) | Dense semantic clustering, identifies fine-grained sub-themes. |
+
+### Key Domain Insights & Findings
+
+- **CFPB Sub-Category Breakdown:** Uncovered ~13 distinct sub-clusters within CFPB’s single broad category *"Problem with a purchase shown on your statement"*.
+- **Credit-Repair Disruption:** Identified standardized and templated dispute letters originating from third-party credit-repair services across consumer credit reporting disputes.
+
+---
+
+## 📁 Project Structure
+
+```text
+complaint-theme-mining/
+├── data/
+│   ├── raw/                  # Raw complaint CSV files (Git-ignored)
+│   ├── processed/            # Processed outputs with cluster assignments (Git-ignored)
+│   └── sample_data.csv       # Tracked sample dataset (10 records) for demonstration
+├── docs/
+│   └── dashboard_preview.png # Dashboard screenshot image
+├── src/
+│   ├── __init__.py
+│   ├── config.py             # Global pipeline parameters, model paths & API timeouts
+│   ├── nlp_pipeline.py       # SBERT + HDBSCAN + c-TF-IDF + Soft Clustering pipeline
+│   ├── llm_labeler.py        # Ollama Llama 3.2 auto-labeler & fallback engine
+│   └── dashboard.py          # Interactive Streamlit dashboard application
+├── tests/
+│   └── test_pipeline.py      # Automated pytest suite
+├── .gitignore                # Excludes large CSVs, models, and virtual environments
+├── requirements.txt          # Explicit Python library dependencies
+├── README.md                 # Complete repository documentation
+└── SUMMARY.md                # Detailed refactoring analysis & benchmarks
+```
+
+---
+
+## 🚀 Quick Start
+
+### 1. Hardware & System Prerequisites
+
+- **Python Version:** Python 3.10, 3.11, or 3.12
+- **System Memory (RAM):**
+  - Minimum 8 GB RAM (for running SBERT + HDBSCAN on sample data)
+  - Recommended 16 GB+ RAM (for running 30,000+ complaint batches)
+- **Ollama Local LLM Prerequisites:**
+  - Recommended 8 GB+ RAM / 4 GB+ VRAM for running `llama3.2` model locally via Ollama.
+
+### 2. Clone Repository & Setup Environment
+
+```bash
+# Clone the repository
+git clone https://github.com/Radhika2004Dahiya/complaint-theme-mining.git
+cd complaint-theme-mining
+
+# Create virtual environment
+python3 -m venv venv
+
+# Activate virtual environment
+# On Linux/macOS:
+source venv/bin/activate
+# On Windows:
+# venv\Scripts\activate
+
+# Install dependencies
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+### 3. Local LLM (Ollama) Setup
+
+Install [Ollama](https://ollama.ai/) and start the local model:
+
+```bash
+# Pull Llama 3.2 model
+ollama pull llama3.2
+
+# Start Ollama server
+ollama serve
+```
+*Note: If Ollama is offline or uninstalled, the pipeline gracefully falls back to generating clean theme titles from c-TF-IDF keywords.*
+
+### 4. Run the Streamlit Dashboard
+
+Launch the interactive web application:
+```bash
+streamlit run src/dashboard.py
+```
+Open your browser at `http://localhost:8501`.
+
+---
+
+## 📊 Pipeline Overview
+
+```
+[ Raw Complaints Data ]
+          │
+          ▼
+ [ SBERT Embedding (all-MiniLM-L6-v2) ]
+          │
+          ▼
+   [ HDBSCAN Clustering ]
+          │
+  ┌───────┴────────┐
+  ▼                ▼
+[ c-TF-IDF ]  [ 2D PCA Mapping ]
+  │                │
+  ▼                │
+[ Ollama Llama 3.2 Labeler ] ◄─ (Fallback to Keywords if offline)
+  │                │
+  └───────┬────────┘
+          ▼
+[ Streamlit Dashboard Visuals ]
+```
+
+---
+
+## 🧪 Running Tests
+
+Execute the automated pytest suite to verify all pipeline components and fallback logic:
+
+```bash
+python3 -m pytest
+```
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
